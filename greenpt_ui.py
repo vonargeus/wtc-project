@@ -316,13 +316,6 @@ def main() -> None:
                                 with st.expander("Error details"):
                                     st.code(traceback.format_exc())
 
-    st.divider()
-    st.markdown(
-        "Need API access? Set `GREENPT_API_KEY`, `GREENPT_MODEL`, and optionally "
-        "`GREENPT_API_URL`/`GREENPT_SYSTEM_PROMPT` in an `.env` file before running "
-        "`streamlit run greenpt_ui.py`."
-    )
-
 
 if __name__ == "__main__":
     main()
