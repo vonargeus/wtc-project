@@ -6,7 +6,11 @@ from pathlib import Path
 import requests
 import streamlit as st
 
-from api_client import call_greenpt_chat, list_greenpt_models
+from api_client import (
+    call_greenpt_chat,
+    call_greenpt_chat_with_blueprint,
+    list_greenpt_models,
+)
 from config import (
     DEFAULT_BLUEPRINT_SECTIONS,
     DETAIL_LEVELS,
@@ -107,29 +111,46 @@ def main() -> None:
             help="After the blueprint response, automatically generate source files and a downloadable zip.",
         )
 
+        st.markdown("---")
+        st.markdown("### 📁 Projects")
+        
         projects = st.session_state["projects"]
         project_keys = sorted(projects.keys())
-
+        
+        # 显示项目列表和消息数量
+        if project_keys:
+            st.markdown("**Your Projects:**")
+            for proj_key in project_keys:
+                proj_state = projects[proj_key]
+                msg_count = len(proj_state.get("history", [])) - 1  # 减去初始问候
+                has_blueprint = "✓" if proj_state.get("last_blueprint") else "○"
+                is_active = "**→**" if proj_key == st.session_state["active_project"] else ""
+                st.markdown(f"{is_active} {has_blueprint} `{proj_key}` ({msg_count} messages)")
+        
         active_project = st.selectbox(
-            "Active project",
+            "Switch to project",
             options=project_keys,
-            index=project_keys.index(st.session_state["active_project"]),
+            index=project_keys.index(st.session_state["active_project"]) if st.session_state["active_project"] in project_keys else 0,
+            help="Select a project to view its chat history",
         )
         st.session_state["active_project"] = active_project
 
+        st.markdown("**Create New Project:**")
         new_project_name = st.text_input(
-            "Create or switch project",
+            "New project name",
             value="",
             placeholder="e.g., carbon-tracker",
+            label_visibility="collapsed",
         )
-        if st.button("Activate project") and new_project_name.strip():
+        if st.button("➕ Create & Switch", use_container_width=True) and new_project_name.strip():
             new_slug = sanitize_project_slug(new_project_name)
             st.session_state["active_project"] = new_slug
             get_or_create_project_state(new_slug)
             st.rerun()
 
+        st.markdown("---")
         log_hint_path = PROJECT_LOGS_ROOT / f"{st.session_state['active_project']}.json"
-        st.caption(f"Logs saved to `{log_hint_path}`")
+        st.caption(f"💾 Logs: `{log_hint_path}`")
 
     active_project = st.session_state["active_project"]
     project_state = get_or_create_project_state(active_project)
@@ -169,8 +190,11 @@ def main() -> None:
         project_state["history"].append({"role": "user", "content": prompt_clean})
 
         if is_follow_up:
+            # 后续对话：基于已有蓝图进行对话
+            blueprint = project_state["last_blueprint"]
             history_payload = [dict(msg) for msg in project_state["history"][:-1]]
         else:
+            # 首次生成：使用完整的蓝图生成提示词
             blueprint_prompt = build_blueprint_prompt(
                 prompt_clean,
                 selected_sections,
@@ -183,14 +207,17 @@ def main() -> None:
             with st.spinner("Calling GreenPT..."):
                 try:
                     if is_follow_up:
-                        reply = call_greenpt_chat(
+                        # 使用基于蓝图的对话函数
+                        reply = call_greenpt_chat_with_blueprint(
                             prompt_clean,
+                            blueprint,
                             tone,
                             model_choice,
                             history=history_payload,
                             max_tokens=2000,
                         )
                     else:
+                        # 首次生成蓝图
                         reply = call_greenpt_chat(blueprint_prompt, tone, model_choice, max_tokens=2000)
                 except ValueError as missing_key:
                     st.error(str(missing_key))

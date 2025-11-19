@@ -8,6 +8,7 @@ import requests
 from config import (
     DEFAULT_GREENPT_MODELS_URL,
     DEFAULT_MODEL,
+    FOLLOW_UP_SYSTEM_PROMPT,
     GREENPT_API_KEY,
     GREENPT_API_URL,
     GREENPT_MODEL,
@@ -69,6 +70,100 @@ def call_greenpt_chat(
     else:
         messages = [
             {"role": "system", "content": GREENPT_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+
+    payload = {
+        "model": model or GREENPT_MODEL,
+        "messages": messages,
+        "temperature": 0.4,
+        "max_tokens": max_tokens,
+    }
+
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(
+                GREENPT_API_URL,
+                json=payload,
+                headers=_greenpt_headers(),
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            break
+        except requests.Timeout as timeout_err:
+            last_error = timeout_err
+            if attempt < max_retries:
+                wait_time = (attempt + 1) * 5
+                time.sleep(wait_time)
+                continue
+            else:
+                raise requests.RequestException(
+                    f"Request timed out after {timeout}s (tried {max_retries + 1} times). "
+                    f"The API may be slow or your request is too large. Try reducing max_tokens or check your network connection."
+                ) from timeout_err
+        except requests.RequestException as req_err:
+            if attempt < max_retries:
+                wait_time = (attempt + 1) * 2
+                time.sleep(wait_time)
+                continue
+            raise
+    
+    data = response.json()
+
+    choices = data.get("choices") or []
+    if not choices:
+        raise ValueError("GreenPT returned no choices in the response.")
+
+    message = choices[0].get("message") or {}
+    content = (message.get("content") or "").strip()
+    if not content:
+        content = (data.get("summary") or data.get("message") or "").strip()
+
+    if not content:
+        raise ValueError("GreenPT did not include any assistant content.")
+
+    return content
+
+
+def call_greenpt_chat_with_blueprint(
+    prompt: str,
+    blueprint: str,
+    tone: Optional[str] = None,
+    model: Optional[str] = None,
+    history: Optional[List[dict]] = None,
+    max_tokens: int = 2000,
+    timeout: Optional[int] = None,
+    max_retries: int = 2,
+) -> str:
+    """
+    Call the GreenPT chat API for follow-up conversations based on an existing blueprint.
+    Uses a simplified system prompt focused on refining the blueprint rather than generating new ones.
+    """
+    if timeout is None:
+        timeout = max(60, int(max_tokens / 50))
+    
+    user_content = prompt
+    if tone:
+        user_content = f"{prompt}\n\nPreferred tone: {tone}"
+
+    # Create a system message that includes the blueprint context
+    system_content = f"""{FOLLOW_UP_SYSTEM_PROMPT}
+
+Current Project Blueprint:
+{blueprint}
+
+Use this blueprint as context when answering questions or making suggestions."""
+    
+    if history:
+        messages: List[dict] = [
+            {"role": "system", "content": system_content},
+            *[dict(msg) for msg in history],
+            {"role": "user", "content": user_content},
+        ]
+    else:
+        messages = [
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_content},
         ]
 

@@ -162,10 +162,10 @@ DEFAULT_BLUEPRINT_SECTIONS: List[Tuple[str, str]] = [
 INITIAL_ASSISTANT_GREETING = (
     "Welcome to your hackathon project assistant! 🚀\n\n"
     "I can help you:\n"
-    "• Generate and refine project ideas\n"
-    "• Create detailed blueprints with architecture, APIs, and implementation plans\n"
-    "• Build complete project structures with code files\n"
-    "• Answer follow-up questions and iterate on your design\n\n"
+    "- Generate and refine project ideas\n"
+    "- Create detailed blueprints with architecture, APIs, and implementation plans\n"
+    "- Build complete project structures with code files\n"
+    "- Answer follow-up questions and iterate on your design\n\n"
     "Describe your hackathon project idea, and I'll help you turn it into a complete plan!"
 )
 
@@ -214,5 +214,23 @@ Project blueprint:
 {blueprint}
 
 Produce the complete file content ready to be written to disk. Do not wrap with markdown fences.
+"""
+
+FOLLOW_UP_SYSTEM_PROMPT = """
+You are a helpful assistant helping the user refine and iterate on their hackathon project blueprint.
+
+Your role:
+- Answer questions about specific parts of the blueprint
+- Suggest improvements or modifications to specific sections
+- Help clarify or expand on details
+- Assist with implementation decisions
+- Keep responses focused and concise
+
+Important rules:
+- Always reference the existing blueprint when answering
+- When suggesting changes, be specific about which section you're modifying
+- Don't regenerate the entire blueprint unless explicitly asked
+- Focus on the user's specific question or request
+- Be practical and actionable
 """
 
