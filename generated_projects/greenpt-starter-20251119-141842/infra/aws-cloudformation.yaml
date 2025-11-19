@@ -1,0 +1,102 @@
+## AWS CloudFormation Template
+
+### Resources
+
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+
+Resources:
+  # IAM Roles
+  GamingAssistantExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        -
+          PolicyName: gaming-assistant-execution-role-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - 'logs:*'
+                Resource: arn:aws:logs:*:*:*
+
+  # Security Groups
+  GamingAssistantSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound traffic on port 80 and 443
+      VpcId: !Ref GamingAssistantVPC
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        -
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  # Lambda Function
+  GamingAssistantLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: gaming-assistant-lambda-function
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Role: !GetAtt GamingAssistantExecutionRole.Arn
+      Code:
+        S3Bucket: gaming-assistant-code
+        S3Key: gaming-assistant-code.zip
+
+  # API Gateway
+  GamingAssistantAPIGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: gaming-assistant-api
+      Description: API for gaming assistant
+
+  # DynamoDB Table
+  GamingAssistantDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: gaming-assistant-table
+      AttributeDefinitions:
+        -
+          AttributeName: id
+          AttributeType: S
+        -
+          AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        -
+          AttributeName: id
+          KeyType: HASH
+        -
+          AttributeName: user_id
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  # S3 Bucket
+  GamingAssistantS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: gaming-assistant-bucket
+
+  # CloudWatch Log Group
+  GamingAssistantCloudWatchLog
