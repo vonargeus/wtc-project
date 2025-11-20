@@ -99,253 +99,288 @@ def _remove_tutorial_dom() -> None:
     cleanup_script = """
     <script>
     (function() {
-        const doc = window.parent?.document;
+        const doc = window.parent?.document || document;
         if (!doc) { return; }
         const root = doc.getElementById('tutorial-root');
         if (root) { root.remove(); }
         const style = doc.getElementById('tutorial-style');
         if (style) { style.remove(); }
-        const handler = doc.getElementById('tutorial-handler');
-        if (handler) { handler.remove(); }
     })();
     </script>
     """.strip()
     html(cleanup_script, height=0, width=0)
 
 
-def _render_tutorial_dom(body_html: str, css_block: str) -> None:
-    """Inject the tutorial overlay into the parent document via JS."""
-    payload = f"""
+def show_tutorial_modal() -> None:
+    """Display a floating tutorial modal managed fully on the client."""
+    tutorial_steps = get_tutorial_steps()
+    if not tutorial_steps:
+        _remove_tutorial_dom()
+        return
+
+    position_map = {
+        "center": "top: 50%; left: 50%; transform: translate(-50%, -50%);",
+        "left": "top: 140px; left: 360px;",
+        "bottom": "bottom: 180px; left: 50%; transform: translateX(-50%);",
+    }
+
+    script = f"""
     <script>
     (function() {{
-        const doc = window.parent?.document;
-        if (!doc) {{ return; }}
+        const steps = {json.dumps(tutorial_steps, ensure_ascii=False)};
+        const positionMap = {json.dumps(position_map)};
+        const rootWindow = window.parent || window;
+        const doc = rootWindow.document;
+        if (!doc || !Array.isArray(steps) || steps.length === 0) {{
+            return;
+        }}
 
-        const existingRoot = doc.getElementById('tutorial-root');
-        if (existingRoot) {{ existingRoot.remove(); }}
-        const existingStyle = doc.getElementById('tutorial-style');
-        if (existingStyle) {{ existingStyle.remove(); }}
-        const existingHandler = doc.getElementById('tutorial-handler');
-        if (existingHandler) {{ existingHandler.remove(); }}
+        const dismissedKey = "greenptTutorialDismissed";
+        const stepKey = "greenptTutorialStep";
+        const localStorage = rootWindow.localStorage || window.localStorage;
+        const sessionStorage = rootWindow.sessionStorage || window.sessionStorage;
 
-        const styleEl = doc.createElement('style');
-        styleEl.id = 'tutorial-style';
-        styleEl.textContent = {json.dumps(css_block)};
-        doc.head.appendChild(styleEl);
+        if (localStorage && localStorage.getItem(dismissedKey) === "true") {{
+            removeExisting();
+            return;
+        }}
 
-        const wrapper = doc.createElement('div');
-        wrapper.id = 'tutorial-root';
-        wrapper.innerHTML = {json.dumps(body_html)};
+        let currentStep = 0;
+        if (sessionStorage) {{
+            const stored = parseInt(sessionStorage.getItem(stepKey) || "0", 10);
+            if (!Number.isNaN(stored)) {{
+                currentStep = Math.max(0, Math.min(stored, steps.length - 1));
+            }}
+        }}
+
+        removeExisting();
+        injectStyle();
+        const wrapper = buildOverlay();
         doc.body.appendChild(wrapper);
+        attachHandlers(wrapper);
+        renderStep();
 
-        const handlerScript = doc.createElement('script');
-        handlerScript.id = 'tutorial-handler';
-        handlerScript.type = 'text/javascript';
-        handlerScript.textContent = `
-            (function() {{
-                function wireTutorialButtons() {{
-                    const overlayRoot = document.getElementById('tutorial-root');
-                    if (!overlayRoot) {{ return; }}
-                    overlayRoot.querySelectorAll('[data-action]').forEach(function(btn) {{
-                        btn.addEventListener('click', function(evt) {{
-                            evt.preventDefault();
-                            const action = btn.getAttribute('data-action');
-                            const url = new URL(window.location.href);
-                            url.searchParams.set('tutorial_action', action);
-                            window.location.href = url.toString();
-                        }});
-                    }});
+        function injectStyle() {{
+            const existingStyle = doc.getElementById("tutorial-style");
+            if (existingStyle) {{
+                existingStyle.remove();
+            }}
+            const style = doc.createElement("style");
+            style.id = "tutorial-style";
+            style.textContent = `
+                .tutorial-overlay {{
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    backdrop-filter: blur(2px);
+                    background-color: rgba(0, 0, 0, 0.6);
+                    z-index: 999990;
                 }}
-                wireTutorialButtons();
-            }})();
-        `;
-        doc.body.appendChild(handlerScript);
+                .tutorial-modal {{
+                    position: fixed;
+                    z-index: 999999;
+                    background: #ffffff;
+                    border-radius: 12px;
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+                    padding: 24px;
+                    width: 400px;
+                    max-width: 90vw;
+                    font-family: sans-serif;
+                    color: #333;
+                }}
+                .tutorial-modal[data-position="left"] {{
+                    top: 140px;
+                    left: 360px;
+                }}
+                .tutorial-modal[data-position="center"] {{
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                }}
+                .tutorial-modal[data-position="bottom"] {{
+                    bottom: 180px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                }}
+                .tutorial-header {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 16px;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 8px;
+                }}
+                .tutorial-title {{
+                    margin: 0;
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: #1f77b4;
+                }}
+                .tutorial-content {{
+                    font-size: 15px;
+                    line-height: 1.5;
+                    margin-bottom: 20px;
+                    color: #444;
+                }}
+                .tutorial-buttons {{
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 10px;
+                }}
+                .tutorial-btn {{
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    border: 1px solid transparent;
+                    background: #f5f5f5;
+                    color: #333;
+                }}
+                .tutorial-btn-primary {{
+                    background-color: #ff4b4b;
+                    color: #fff;
+                    border-color: #ff4b4b;
+                }}
+                .tutorial-btn-primary:hover {{
+                    background-color: #ff2b2b;
+                }}
+                .tutorial-btn-secondary {{
+                    background-color: #fff;
+                    color: #333;
+                    border-color: #ccc;
+                }}
+                .tutorial-btn-secondary:hover {{
+                    background-color: #f0f0f0;
+                }}
+                .tutorial-btn-quiet {{
+                    background: transparent;
+                    color: #888;
+                    border: none;
+                }}
+                .tutorial-btn-quiet:hover {{
+                    color: #333;
+                    background: #f5f5f5;
+                }}
+            `;
+            doc.head.appendChild(style);
+        }}
+
+        function buildOverlay() {{
+            const wrapper = doc.createElement("div");
+            wrapper.id = "tutorial-root";
+            wrapper.innerHTML = `
+                <div class="tutorial-overlay"></div>
+                <div class="tutorial-modal" data-position="center">
+                    <div class="tutorial-header">
+                        <h3 class="tutorial-title"></h3>
+                        <span class="tutorial-count"></span>
+                    </div>
+                    <div class="tutorial-content"></div>
+                    <div class="tutorial-buttons">
+                        <button class="tutorial-btn tutorial-btn-quiet" data-action="skip">Skip</button>
+                        <button class="tutorial-btn tutorial-btn-secondary" data-action="prev">Back</button>
+                        <button class="tutorial-btn tutorial-btn-primary" data-action="next">Next</button>
+                    </div>
+                </div>
+            `;
+            return wrapper;
+        }}
+
+        function attachHandlers(wrapper) {{
+            wrapper.addEventListener("click", (event) => {{
+                const target = event.target.closest("[data-action]");
+                if (!target) {{
+                    return;
+                }}
+                event.preventDefault();
+                handleAction(target.getAttribute("data-action") || "");
+            }});
+        }}
+
+        function handleAction(action) {{
+            if (action === "skip" || action === "finish") {{
+                dismiss();
+                return;
+            }}
+            if (action === "prev" && currentStep > 0) {{
+                currentStep -= 1;
+                persistStep();
+                renderStep();
+                return;
+            }}
+            if (action === "next" && currentStep < steps.length - 1) {{
+                currentStep += 1;
+                persistStep();
+                renderStep();
+            }}
+        }}
+
+        function renderStep() {{
+            const step = steps[currentStep];
+            if (!step) {{
+                return;
+            }}
+            const root = doc.getElementById("tutorial-root");
+            const modal = root?.querySelector(".tutorial-modal");
+            if (!root || !modal) {{
+                return;
+            }}
+            const titleEl = modal.querySelector(".tutorial-title");
+            const countEl = modal.querySelector(".tutorial-count");
+            const contentEl = modal.querySelector(".tutorial-content");
+            const backBtn = modal.querySelector('[data-action="prev"]');
+            const primaryBtn = modal.querySelector('[data-action="next"]');
+
+            titleEl.textContent = step.title || "";
+            countEl.textContent = `${{currentStep + 1}}/${{steps.length}}`;
+            contentEl.textContent = step.content || "";
+            modal.setAttribute("data-position", step.position || "center");
+
+            backBtn.style.visibility = currentStep === 0 ? "hidden" : "visible";
+
+            if (currentStep === steps.length - 1) {{
+                primaryBtn.textContent = "Finish";
+                primaryBtn.setAttribute("data-action", "finish");
+            }} else {{
+                primaryBtn.textContent = "Next";
+                primaryBtn.setAttribute("data-action", "next");
+            }}
+        }}
+
+        function persistStep() {{
+            if (sessionStorage) {{
+                sessionStorage.setItem(stepKey, String(currentStep));
+            }}
+        }}
+
+        function dismiss() {{
+            if (localStorage) {{
+                localStorage.setItem(dismissedKey, "true");
+            }}
+            if (sessionStorage) {{
+                sessionStorage.removeItem(stepKey);
+            }}
+            removeExisting();
+        }}
+
+        function removeExisting() {{
+            const existingRoot = doc.getElementById("tutorial-root");
+            if (existingRoot) {{
+                existingRoot.remove();
+            }}
+            const style = doc.getElementById("tutorial-style");
+            if (style) {{
+                style.remove();
+            }}
+        }}
     }})();
     </script>
     """.strip()
-    html(payload, height=0, width=0)
 
-
-def show_tutorial_modal() -> None:
-    """Display a floating tutorial modal on top of the whole page."""
-    # If the user has dismissed the tutorial, do nothing
-    if st.session_state.get("tutorial_dismissed", False):
-        _remove_tutorial_dom()
-        return
-
-    # Initialize step index
-    if "tutorial_step" not in st.session_state:
-        st.session_state["tutorial_step"] = 0
-
-    tutorial_steps = get_tutorial_steps()
-    current_step = st.session_state["tutorial_step"]
-
-    # Handle navigation actions via query params
-    query_params = st.query_params
-    action = query_params.get("tutorial_action")
-    if action:
-        if action == "skip":
-            st.session_state["tutorial_dismissed"] = True
-            st.session_state["tutorial_step"] = 0
-        elif action == "prev":
-            st.session_state["tutorial_step"] = max(0, current_step - 1)
-        elif action == "next":
-            if current_step < len(tutorial_steps) - 1:
-                st.session_state["tutorial_step"] = current_step + 1
-            else:
-                st.session_state["tutorial_dismissed"] = True
-        elif action == "finish":
-            st.session_state["tutorial_dismissed"] = True
-            st.session_state["tutorial_step"] = 0
-
-        st.query_params.clear()
-        st.rerun()
-
-    # Refresh step index
-    current_step = st.session_state.get("tutorial_step", 0)
-
-    if st.session_state.get("tutorial_dismissed", False):
-        _remove_tutorial_dom()
-        return
-    if current_step < 0 or current_step >= len(tutorial_steps):
-        return
-
-    step = tutorial_steps[current_step]
-
-    # CSS Positioning
-    position_map = {
-        "center": "top: 50%; left: 50%; transform: translate(-50%, -50%);",
-        "left": "top: 140px; left: 370px;",  # Shifted right to not cover sidebar
-        "bottom": "bottom: 200px; left: 50%; transform: translateX(-50%);",
-    }
-    position_style = position_map.get(step.get("position", "center"), position_map["center"])
-
-    total_steps = len(tutorial_steps)
-
-    # Logic for buttons
-    is_last = current_step == total_steps - 1
-    next_label = "Finish" if is_last else "Next"
-    next_action = "finish" if is_last else "next"
-
-    title = step.get("title", "")
-    content = step.get("content", "")
-
-    buttons = [
-        '<button class="tutorial-btn tutorial-btn-quiet" data-action="skip">Skip</button>'
-    ]
-    if current_step > 0:
-        buttons.append(
-            '<button class="tutorial-btn tutorial-btn-secondary" data-action="prev">Back</button>'
-        )
-    buttons.append(
-        f'<button class="tutorial-btn tutorial-btn-primary" data-action="{next_action}">{next_label}</button>'
-    )
-
-    body_html = f"""
-    <div class="tutorial-overlay"></div>
-    <div class="tutorial-modal">
-        <div class="tutorial-header">
-            <h3 class="tutorial-title">{title}</h3>
-            <span class="tutorial-count">{current_step + 1}/{total_steps}</span>
-        </div>
-        <div class="tutorial-content">{content}</div>
-        <div class="tutorial-buttons">{''.join(buttons)}</div>
-    </div>
-    """.strip()
-
-    css_block = f"""
-    .tutorial-overlay {{
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background-color: rgba(0, 0, 0, 0.6);
-        z-index: 999990;
-        backdrop-filter: blur(2px);
-    }}
-    .tutorial-modal {{
-        position: fixed;
-        z-index: 999999;
-        background: #ffffff;
-        border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        padding: 24px;
-        width: 400px;
-        max-width: 90vw;
-        font-family: sans-serif;
-        color: #333;
-        {position_style}
-    }}
-    .tutorial-header {{
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 8px;
-    }}
-    .tutorial-title {{
-        margin: 0;
-        font-size: 18px;
-        font-weight: 700;
-        color: #1f77b4;
-    }}
-    .tutorial-count {{
-        font-size: 12px;
-        color: #999;
-    }}
-    .tutorial-content {{
-        font-size: 15px;
-        line-height: 1.5;
-        margin-bottom: 20px;
-        color: #444;
-    }}
-    .tutorial-buttons {{
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-    }}
-    .tutorial-btn {{
-        text-decoration: none;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 600;
-        display: inline-block;
-        cursor: pointer;
-        border: 1px solid transparent;
-        background: #f5f5f5;
-        color: #333;
-    }}
-    .tutorial-btn-primary {{
-        background-color: #ff4b4b;
-        color: #fff;
-        border-color: #ff4b4b;
-    }}
-    .tutorial-btn-primary:hover {{
-        background-color: #ff2b2b;
-    }}
-    .tutorial-btn-secondary {{
-        background-color: #fff;
-        color: #333;
-        border-color: #ccc;
-    }}
-    .tutorial-btn-secondary:hover {{
-        background-color: #f0f0f0;
-    }}
-    .tutorial-btn-quiet {{
-        background: transparent;
-        color: #888;
-        border: none;
-    }}
-    .tutorial-btn-quiet:hover {{
-        color: #333;
-        background: #f5f5f5;
-    }}
-    """.strip()
-
-    _render_tutorial_dom(body_html, css_block)
+    html(script, height=0, width=0)
 
 def _clean_project_histories():
     projects = st.session_state.get("projects", {})
