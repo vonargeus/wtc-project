@@ -1,6 +1,6 @@
-## GreenPT Hackathon Idea Assistant (Streamlit UI)
+## GreenPT Hackathon Hacker
 
-GreenPT Hackathon Idea Assistant is a **Streamlit-based web UI** that helps you go from a rough hackathon idea to:
+GreenPT Hackathon Hacker is a **Streamlit-based web UI** that helps you go from a rough hackathon idea to:
 
 - A structured, multi-section **project blueprint** (architecture, APIs, data, frontend, DevOps, roadmap)
 - Optional **auto-generated project files** packaged as a download-ready ZIP
