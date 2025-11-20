@@ -194,4 +194,15 @@ Streamlit will open a browser tab automatically (typically at `http://localhost:
 
 This UI is designed to keep you in flow during a hackathon: fewer tabs, less copy‑paste, and more time building and polishing your project.
 
+<<<<<<< HEAD
+=======
+---
+
+### 🔄 Recent Improvements & Next Ideas
+
+- Floating onboarding modal now advances steps entirely on the client side, so **Next/Back/Skip** never reload the page and stay responsive even on slower networks.
+- Tutorial state persists with browser storage, meaning once a user finishes or skips it the assistant stays out of the way on future visits while still allowing a refreshed tour after clearing storage.
+- Next enhancements under consideration: adding a “Replay tutorial” action in the sidebar and letting the overlay spotlight exact UI controls with live highlights.
+
+>>>>>>> feature/new-functions
 
