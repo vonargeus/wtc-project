@@ -199,6 +199,7 @@ Output a JSON array. Each element must be an object with:
 - "instructions": bullet list (single string) describing must-have contents.
 
 Include at least one README, infra/IaC file, env example, backend code, frontend code, and tests when applicable.
+Always include a top-level "Dockerfile" entry that explains how to containerize and run the generated stack.
 Only return JSON, no prose.
 """
 
@@ -233,4 +234,3 @@ Important rules:
 - Focus on the user's specific question or request
 - Be practical and actionable
 """
-

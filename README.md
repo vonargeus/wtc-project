@@ -27,6 +27,7 @@ This repo is the UI layer that talks to the GreenPT API and manages projects, lo
     2. Generates each file’s content from the blueprint.
     3. Writes everything into `generated_projects/<project-slug>-<timestamp>/`.
     4. Packages the directory into a ZIP and exposes a **Download project zip** button.
+  - Auto-build now always adds a production-ready `Dockerfile`, so every download already includes container instructions for the generated stack.
   - Previous builds remain available under a **📦 Previous Build – Download** expander.
 
 - **Per-project logs**
@@ -205,4 +206,3 @@ This UI is designed to keep you in flow during a hackathon: fewer tabs, less cop
 - Next enhancements under consideration: adding a “Replay tutorial” action in the sidebar and letting the overlay spotlight exact UI controls with live highlights.
 
 >>>>>>> feature/new-functions
-
