@@ -1,4 +1,5 @@
 """Streamlit UI for GreenPT Idea Assistant."""
+import hashlib
 import json
 import re
 import traceback
@@ -47,31 +48,34 @@ def get_tutorial_steps() -> list[dict]:
             "position": "center",
         },
         {
-            "title": "📁 Projects & chat history",
-            "content": (
-                "Use the Projects area in the sidebar to switch between or create hackathon projects. "
-                "Each project has its own chat history, blueprint, and build artifacts, so experiments "
-                "stay isolated and you can come back to them later."
-            ),
-            "position": "left",
-        },
-        {
             "title": "🧩 Deliverables you want",
             "content": (
                 "The Deliverables multiselect in the sidebar lets you choose which blueprint sections to generate, "
                 "such as Backend, APIs, Data, Frontend, DevOps, and Roadmap. Pick only what you need for this "
                 "project to keep results focused."
             ),
-            "position": "left",
+            "position": "deliverables",
+            "scroll_target": "#tutorial-deliverables-anchor",
         },
         {
             "title": "⚙️ Detail level & Auto-build",
             "content": (
-                "Use Detail level to choose between a short outline, a detailed blueprint, or a full execution playbook. "
-                "Turn on Auto-build project files when you are ready for the assistant to generate real source code and "
-                "package it into a ZIP."
+                "Detail level controls how deep the blueprint goes, from a quick outline to an execution playbook. "
+                "Use the Auto-build toggle right below it when you are ready to generate runnable project files."
             ),
-            "position": "left",
+            "position": "detail",
+            "scroll_target": "#tutorial-detail-anchor",
+            "scroll_offset": 60,
+        },
+        {
+            "title": "📁 Projects & chat history",
+            "content": (
+                "Use the Projects list in the sidebar to review previous runs, switch teams, or create a new one. "
+                "Each project keeps its own chat history and build artifacts so experiments stay isolated."
+            ),
+            "position": "projects",
+            "scroll_target": "#tutorial-projects-anchor",
+            "scroll_offset": 140,
         },
         {
             "title": "💬 Describe your idea",
@@ -118,267 +122,317 @@ def show_tutorial_modal() -> None:
         _remove_tutorial_dom()
         return
 
-    position_map = {
-        "center": "top: 50%; left: 50%; transform: translate(-50%, -50%);",
-        "left": "top: 140px; left: 360px;",
-        "bottom": "bottom: 180px; left: 50%; transform: translateX(-50%);",
+    steps_signature = json.dumps(tutorial_steps, ensure_ascii=False, sort_keys=True)
+    tutorial_version = hashlib.md5(steps_signature.encode("utf-8")).hexdigest()[:12]
+
+    script_template = """
+<script>
+(function() {
+    const steps = __STEPS_JSON__;
+    const tutorialVersion = "__TUTORIAL_VERSION__";
+    const rootWindow = window.parent || window;
+    const doc = rootWindow.document;
+    if (!doc || !Array.isArray(steps) || steps.length === 0) {
+        return;
     }
 
-    script = f"""
-    <script>
-    (function() {{
-        const steps = {json.dumps(tutorial_steps, ensure_ascii=False)};
-        const positionMap = {json.dumps(position_map)};
-        const rootWindow = window.parent || window;
-        const doc = rootWindow.document;
-        if (!doc || !Array.isArray(steps) || steps.length === 0) {{
-            return;
-        }}
+    const dismissedKey = "greenptTutorialDismissed-" + tutorialVersion;
+    const stepKey = "greenptTutorialStep-" + tutorialVersion;
+    const sessionShownKey = "greenptTutorialShown-" + tutorialVersion;
+    const localStorage = rootWindow.localStorage || window.localStorage;
+    const sessionStorage = rootWindow.sessionStorage || window.sessionStorage;
 
-        const dismissedKey = "greenptTutorialDismissed";
-        const stepKey = "greenptTutorialStep";
-        const localStorage = rootWindow.localStorage || window.localStorage;
-        const sessionStorage = rootWindow.sessionStorage || window.sessionStorage;
+    const hasSeenThisSession =
+        sessionStorage && sessionStorage.getItem(sessionShownKey) === "true";
+    const dismissedGlobally =
+        localStorage && localStorage.getItem(dismissedKey) === "true";
 
-        if (localStorage && localStorage.getItem(dismissedKey) === "true") {{
-            removeExisting();
-            return;
-        }}
-
-        let currentStep = 0;
-        if (sessionStorage) {{
-            const stored = parseInt(sessionStorage.getItem(stepKey) || "0", 10);
-            if (!Number.isNaN(stored)) {{
-                currentStep = Math.max(0, Math.min(stored, steps.length - 1));
-            }}
-        }}
-
+    if (dismissedGlobally && hasSeenThisSession) {
         removeExisting();
-        injectStyle();
-        const wrapper = buildOverlay();
-        doc.body.appendChild(wrapper);
-        attachHandlers(wrapper);
-        renderStep();
+        return;
+    }
 
-        function injectStyle() {{
-            const existingStyle = doc.getElementById("tutorial-style");
-            if (existingStyle) {{
-                existingStyle.remove();
-            }}
-            const style = doc.createElement("style");
-            style.id = "tutorial-style";
-            style.textContent = `
-                .tutorial-overlay {{
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100vw;
-                    height: 100vh;
-                    backdrop-filter: blur(2px);
-                    background-color: rgba(0, 0, 0, 0.6);
-                    z-index: 999990;
-                }}
-                .tutorial-modal {{
-                    position: fixed;
-                    z-index: 999999;
-                    background: #ffffff;
-                    border-radius: 12px;
-                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-                    padding: 24px;
-                    width: 400px;
-                    max-width: 90vw;
-                    font-family: sans-serif;
-                    color: #333;
-                }}
-                .tutorial-modal[data-position="left"] {{
-                    top: 140px;
-                    left: 360px;
-                }}
-                .tutorial-modal[data-position="center"] {{
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                }}
-                .tutorial-modal[data-position="bottom"] {{
-                    bottom: 180px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                }}
-                .tutorial-header {{
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 16px;
-                    border-bottom: 1px solid #eee;
-                    padding-bottom: 8px;
-                }}
-                .tutorial-title {{
-                    margin: 0;
-                    font-size: 18px;
-                    font-weight: 700;
-                    color: #1f77b4;
-                }}
-                .tutorial-content {{
-                    font-size: 15px;
-                    line-height: 1.5;
-                    margin-bottom: 20px;
-                    color: #444;
-                }}
-                .tutorial-buttons {{
-                    display: flex;
-                    justify-content: flex-end;
-                    gap: 10px;
-                }}
-                .tutorial-btn {{
-                    padding: 8px 16px;
-                    border-radius: 6px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    border: 1px solid transparent;
-                    background: #f5f5f5;
-                    color: #333;
-                }}
-                .tutorial-btn-primary {{
-                    background-color: #ff4b4b;
-                    color: #fff;
-                    border-color: #ff4b4b;
-                }}
-                .tutorial-btn-primary:hover {{
-                    background-color: #ff2b2b;
-                }}
-                .tutorial-btn-secondary {{
-                    background-color: #fff;
-                    color: #333;
-                    border-color: #ccc;
-                }}
-                .tutorial-btn-secondary:hover {{
-                    background-color: #f0f0f0;
-                }}
-                .tutorial-btn-quiet {{
-                    background: transparent;
-                    color: #888;
-                    border: none;
-                }}
-                .tutorial-btn-quiet:hover {{
-                    color: #333;
-                    background: #f5f5f5;
-                }}
-            `;
-            doc.head.appendChild(style);
-        }}
+    let currentStep = 0;
+    if (sessionStorage) {
+        const stored = parseInt(sessionStorage.getItem(stepKey) || "0", 10);
+        if (!Number.isNaN(stored)) {
+            currentStep = Math.max(0, Math.min(stored, steps.length - 1));
+        }
+    }
 
-        function buildOverlay() {{
-            const wrapper = doc.createElement("div");
-            wrapper.id = "tutorial-root";
-            wrapper.innerHTML = `
-                <div class="tutorial-overlay"></div>
-                <div class="tutorial-modal" data-position="center">
-                    <div class="tutorial-header">
-                        <h3 class="tutorial-title"></h3>
-                        <span class="tutorial-count"></span>
-                    </div>
-                    <div class="tutorial-content"></div>
-                    <div class="tutorial-buttons">
-                        <button class="tutorial-btn tutorial-btn-quiet" data-action="skip">Skip</button>
-                        <button class="tutorial-btn tutorial-btn-secondary" data-action="prev">Back</button>
-                        <button class="tutorial-btn tutorial-btn-primary" data-action="next">Next</button>
-                    </div>
+    removeExisting();
+    injectStyle();
+    const wrapper = buildOverlay();
+    doc.body.appendChild(wrapper);
+    if (sessionStorage) {
+        sessionStorage.setItem(sessionShownKey, "true");
+    }
+    attachHandlers(wrapper);
+    renderStep();
+
+    function injectStyle() {
+        const existingStyle = doc.getElementById("tutorial-style");
+        if (existingStyle) {
+            existingStyle.remove();
+        }
+        const style = doc.createElement("style");
+        style.id = "tutorial-style";
+        style.textContent = `
+            .tutorial-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                backdrop-filter: blur(2px);
+                background-color: rgba(0, 0, 0, 0.6);
+                z-index: 999990;
+            }
+            .tutorial-modal {
+                position: fixed;
+                z-index: 999999;
+                background: #ffffff;
+                border-radius: 12px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+                padding: 24px;
+                width: 400px;
+                max-width: 90vw;
+                font-family: sans-serif;
+                color: #333;
+            }
+            .tutorial-modal[data-position="center"] {
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+            .tutorial-modal[data-position="left"] {
+                top: 140px;
+                left: 360px;
+            }
+            .tutorial-modal[data-position="deliverables"] {
+                top: 110px;
+                left: 360px;
+            }
+            .tutorial-modal[data-position="projects"] {
+                top: 260px;
+                left: 360px;
+            }
+            .tutorial-modal[data-position="bottom"] {
+                bottom: 180px;
+                left: 50%;
+                transform: translateX(-50%);
+            }
+            .tutorial-modal[data-position="detail"] {
+                top: 200px;
+                left: 360px;
+            }
+            .tutorial-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 16px;
+                border-bottom: 1px solid #eee;
+                padding-bottom: 8px;
+            }
+            .tutorial-title {
+                margin: 0;
+                font-size: 18px;
+                font-weight: 700;
+                color: #1f77b4;
+            }
+            .tutorial-content {
+                font-size: 15px;
+                line-height: 1.5;
+                margin-bottom: 20px;
+                color: #444;
+            }
+            .tutorial-buttons {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+            }
+            .tutorial-btn {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                border: 1px solid transparent;
+                background: #f5f5f5;
+                color: #333;
+            }
+            .tutorial-btn-primary {
+                background-color: #ff4b4b;
+                color: #fff;
+                border-color: #ff4b4b;
+            }
+            .tutorial-btn-primary:hover {
+                background-color: #ff2b2b;
+            }
+            .tutorial-btn-secondary {
+                background-color: #fff;
+                color: #333;
+                border-color: #ccc;
+            }
+            .tutorial-btn-secondary:hover {
+                background-color: #f0f0f0;
+            }
+            .tutorial-btn-quiet {
+                background: transparent;
+                color: #888;
+                border: none;
+            }
+            .tutorial-btn-quiet:hover {
+                color: #333;
+                background: #f5f5f5;
+            }
+        `;
+        doc.head.appendChild(style);
+    }
+
+    function buildOverlay() {
+        const wrapper = doc.createElement("div");
+        wrapper.id = "tutorial-root";
+        wrapper.innerHTML = `
+            <div class="tutorial-overlay"></div>
+            <div class="tutorial-modal" data-position="center">
+                <div class="tutorial-header">
+                    <h3 class="tutorial-title"></h3>
+                    <span class="tutorial-count"></span>
                 </div>
-            `;
-            return wrapper;
-        }}
+                <div class="tutorial-content"></div>
+                <div class="tutorial-buttons">
+                    <button class="tutorial-btn tutorial-btn-quiet" data-action="skip">Skip</button>
+                    <button class="tutorial-btn tutorial-btn-secondary" data-action="prev">Back</button>
+                    <button class="tutorial-btn tutorial-btn-primary" data-action="next">Next</button>
+                </div>
+            </div>
+        `;
+        return wrapper;
+    }
 
-        function attachHandlers(wrapper) {{
-            wrapper.addEventListener("click", (event) => {{
-                const target = event.target.closest("[data-action]");
-                if (!target) {{
-                    return;
-                }}
-                event.preventDefault();
-                handleAction(target.getAttribute("data-action") || "");
-            }});
-        }}
-
-        function handleAction(action) {{
-            if (action === "skip" || action === "finish") {{
-                dismiss();
+    function attachHandlers(wrapper) {
+        wrapper.addEventListener("click", (event) => {
+            const target = event.target.closest("[data-action]");
+            if (!target) {
                 return;
-            }}
-            if (action === "prev" && currentStep > 0) {{
-                currentStep -= 1;
-                persistStep();
-                renderStep();
-                return;
-            }}
-            if (action === "next" && currentStep < steps.length - 1) {{
-                currentStep += 1;
-                persistStep();
-                renderStep();
-            }}
-        }}
+            }
+            event.preventDefault();
+            handleAction(target.getAttribute("data-action") || "");
+        });
+    }
 
-        function renderStep() {{
-            const step = steps[currentStep];
-            if (!step) {{
-                return;
-            }}
-            const root = doc.getElementById("tutorial-root");
-            const modal = root?.querySelector(".tutorial-modal");
-            if (!root || !modal) {{
-                return;
-            }}
-            const titleEl = modal.querySelector(".tutorial-title");
-            const countEl = modal.querySelector(".tutorial-count");
-            const contentEl = modal.querySelector(".tutorial-content");
-            const backBtn = modal.querySelector('[data-action="prev"]');
-            const primaryBtn = modal.querySelector('[data-action="next"]');
+    function handleAction(action) {
+        if (action === "skip" || action === "finish") {
+            dismiss();
+            return;
+        }
+        if (action === "prev" && currentStep > 0) {
+            currentStep -= 1;
+            persistStep();
+            renderStep();
+            return;
+        }
+        if (action === "next" && currentStep < steps.length - 1) {
+            currentStep += 1;
+            persistStep();
+            renderStep();
+        }
+    }
 
-            titleEl.textContent = step.title || "";
-            countEl.textContent = `${{currentStep + 1}}/${{steps.length}}`;
-            contentEl.textContent = step.content || "";
-            modal.setAttribute("data-position", step.position || "center");
+    function renderStep() {
+        const step = steps[currentStep];
+        if (!step) {
+            return;
+        }
+        const root = doc.getElementById("tutorial-root");
+        const modal = root?.querySelector(".tutorial-modal");
+        if (!root || !modal) {
+            return;
+        }
+        const titleEl = modal.querySelector(".tutorial-title");
+        const countEl = modal.querySelector(".tutorial-count");
+        const contentEl = modal.querySelector(".tutorial-content");
+        const backBtn = modal.querySelector('[data-action="prev"]');
+        const primaryBtn = modal.querySelector('[data-action="next"]');
 
-            backBtn.style.visibility = currentStep === 0 ? "hidden" : "visible";
+        titleEl.textContent = step.title || "";
+        countEl.textContent = String(currentStep + 1) + "/" + String(steps.length);
+        contentEl.textContent = step.content || "";
+        modal.setAttribute("data-position", step.position || "center");
 
-            if (currentStep === steps.length - 1) {{
-                primaryBtn.textContent = "Finish";
-                primaryBtn.setAttribute("data-action", "finish");
-            }} else {{
-                primaryBtn.textContent = "Next";
-                primaryBtn.setAttribute("data-action", "next");
-            }}
-        }}
+        backBtn.style.visibility = currentStep === 0 ? "hidden" : "visible";
 
-        function persistStep() {{
-            if (sessionStorage) {{
-                sessionStorage.setItem(stepKey, String(currentStep));
-            }}
-        }}
+        if (currentStep === steps.length - 1) {
+            primaryBtn.textContent = "Finish";
+            primaryBtn.setAttribute("data-action", "finish");
+        } else {
+            primaryBtn.textContent = "Next";
+            primaryBtn.setAttribute("data-action", "next");
+        }
 
-        function dismiss() {{
-            if (localStorage) {{
-                localStorage.setItem(dismissedKey, "true");
-            }}
-            if (sessionStorage) {{
-                sessionStorage.removeItem(stepKey);
-            }}
-            removeExisting();
-        }}
+        focusSidebar(step);
+    }
 
-        function removeExisting() {{
-            const existingRoot = doc.getElementById("tutorial-root");
-            if (existingRoot) {{
-                existingRoot.remove();
-            }}
-            const style = doc.getElementById("tutorial-style");
-            if (style) {{
-                style.remove();
-            }}
-        }}
-    }})();
-    </script>
-    """.strip()
+    function persistStep() {
+        if (sessionStorage) {
+            sessionStorage.setItem(stepKey, String(currentStep));
+        }
+    }
+
+    function dismiss() {
+        if (localStorage) {
+            localStorage.setItem(dismissedKey, "true");
+        }
+        if (sessionStorage) {
+            sessionStorage.removeItem(stepKey);
+        }
+        removeExisting();
+    }
+
+    function removeExisting() {
+        const existingRoot = doc.getElementById("tutorial-root");
+        if (existingRoot) {
+            existingRoot.remove();
+        }
+        const style = doc.getElementById("tutorial-style");
+        if (style) {
+            style.remove();
+        }
+    }
+
+    function focusSidebar(step) {
+        const sidebar =
+            doc.querySelector('section[data-testid="stSidebar"]') ||
+            doc.querySelector('div[data-testid="stSidebar"]');
+        if (!sidebar) {
+            return;
+        }
+        if (step.scroll_target) {
+            const target = doc.querySelector(step.scroll_target);
+            if (target && typeof target.scrollIntoView === "function") {
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+        }
+        if (step.scroll_offset) {
+            const offset = Number(step.scroll_offset);
+            if (!Number.isNaN(offset) && offset !== 0) {
+                if (typeof sidebar.scrollBy === "function") {
+                    sidebar.scrollBy({ top: offset, left: 0, behavior: "smooth" });
+                } else {
+                    sidebar.scrollTop += offset;
+                }
+            }
+        }
+    }
+})();
+</script>
+""".strip()
+
+    script = (
+        script_template.replace("__STEPS_JSON__", json.dumps(tutorial_steps, ensure_ascii=False))
+        .replace("__TUTORIAL_VERSION__", tutorial_version)
+    )
 
     html(script, height=0, width=0)
 
@@ -405,8 +459,8 @@ _clean_project_histories()
 
 
 def main() -> None:
-    st.set_page_config(page_title="GreenPT Idea Assistant", page_icon="🧠")
-    st.title("GreenPT Idea Assistant")
+    st.set_page_config(page_title="Hackathon Hacker", page_icon="👨‍💻")
+    st.title("Hackathon Hacker")
     st.caption("Chat live with GreenPT's LLM about your project.")
 
     # Show floating tutorial for new or returning users (can be dismissed)
@@ -458,6 +512,7 @@ def main() -> None:
         )
 
         deliverable_labels = [section[0] for section in DEFAULT_BLUEPRINT_SECTIONS]
+        st.markdown('<div id="tutorial-deliverables-anchor"></div>', unsafe_allow_html=True)
         selected_labels = st.multiselect(
             "Deliverables",
             options=deliverable_labels,
@@ -475,6 +530,7 @@ def main() -> None:
             selected_sections = DEFAULT_BLUEPRINT_SECTIONS
             st.info("All deliverables are required for a full blueprint. Using defaults.")
 
+        st.markdown('<div id="tutorial-detail-anchor"></div>', unsafe_allow_html=True)
         detail_mode = st.selectbox(
             "Detail level",
             options=list(DETAIL_LEVELS.keys()),
@@ -488,6 +544,7 @@ def main() -> None:
         )
 
         st.markdown("---")
+        st.markdown('<div id="tutorial-projects-anchor"></div>', unsafe_allow_html=True)
         st.markdown("### 📁 Projects")
         
         projects = st.session_state["projects"]
